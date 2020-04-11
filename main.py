@@ -31,6 +31,11 @@ import tempfile
 import os
 import subprocess
 from subprocess import Popen, PIPE, STDOUT
+from pydantic.main import ModelMetaclass
+from typing import Any, Dict, Union, Iterator, Optional, Iterator, Type
+import json
+from returns.io import IO
+from returns.unsafe import unsafe_perform_io
 
 
 class Bug(BaseModel):
@@ -38,12 +43,11 @@ class Bug(BaseModel):
 
 class Soda(Bug):
     """Drank soda"""
-    liters: confloat(gt=0)
-    tea: int
+    liters: float = Field(..., title="How much soda you drank", gt=0)
 
 class Mood(Bug):
     """Mood: how was your day"""
-    mood: conint(gt=0, lt=5)
+    mood: int = Field(..., title="How was your day", gt=0, lt=5)
 
 class Weight(Bug):
     """Weight today"""
@@ -57,21 +61,21 @@ class Learned(Bug):
 
 
 
-def bug_properties(bug_cls):
+def bug_properties(bug_cls: Type[Bug]) -> Dict[str, Any]:
     return bug_cls.schema()["properties"]
 
-def bug_description(bug_cls):
+def bug_description(bug_cls: Type[Bug]) -> str:
     return bug_cls.schema()["description"]
 
-def str_to_bug(bug_name):
-    return {cls.__name__: cls for cls in Bug.__subclasses__()}[bug_name]
+def str_to_bug(bug_name: str) -> Type[Bug]:
+    return {bug_cls.__name__: bug_cls for bug_cls in Bug.__subclasses__()}[bug_name]
 
-def bug_to_text(bug_cls):
+def bug_to_text(bug_cls: Type[Bug]) -> str:
     schemas = bug_properties(bug_cls).values()
     titles = (schema['title'] for schema in schemas)
     return ''.join(f"# {title}\n\n" for title in titles)
 
-def extract_bug_from_text(bug_cls, text):
+def extract_bug_from_text(bug_cls: Type[Bug], text: str) -> Bug:
     fields = {}
 
     for field, schema in bug_properties(bug_cls).items():
@@ -88,27 +92,28 @@ def extract_bug_from_text(bug_cls, text):
     return bug_cls(**fields)
 
 
-def text_to_bugs(bug_classes, text):
+def text_to_bugs(bug_classes: List[Type[Bug]], text: str) -> Iterator[Bug]:
     for bug_cls in bug_classes:
         yield extract_bug_from_text(bug_cls, text)
 
 @impure
 def db_path() -> Path:
     time_str = datetime.now().isoformat(' ', 'seconds')
-    return Path(save_data_path('buglog')) / f"{time_str}.dump"
+    data_dir = save_data_path('buglog')
+    return Path(data_dir) / f"{time_str}.dump"
 
 @impure
-def input_bugs(bug_classes):
+def input_bugs(bug_classes: List[Type[Bug]]) -> Iterator[Bug]:
     try:
         with tempfile.NamedTemporaryFile(delete=False) as tf:
             for bug_cls in bug_classes:
                 text = bug_to_text(bug_cls)
                 tf.write(text.encode())
 
-        subprocess.call(["vim", "--", tf.name])
+        subprocess.call([os.environ.get('EDITOR', 'vi'), "--", tf.name])
 
-        with open(tf.name, 'r') as tf:
-            text = tf.read()
+        with open(tf.name, 'r') as tf1:
+            text = tf1.read()
             bugs = text_to_bugs(bug_classes, text)
             return bugs
 
@@ -116,7 +121,7 @@ def input_bugs(bug_classes):
         os.remove(tf.name)
 
 @impure
-def fuzzy_pick_bug():
+def fuzzy_pick_bug() -> List[Type[Bug]]:
     fzf_input = '\n'.join(
         f"{cls.__name__} {bug_description(cls)}"
         for cls in Bug.__subclasses__())
@@ -125,73 +130,21 @@ def fuzzy_pick_bug():
     stdout = pipe.communicate(input=fzf_input.encode())[0]
     return [str_to_bug(line.split(maxsplit=1)[0]) for line in stdout.decode().splitlines()]
 
+@impure
+def dump_bugs(bugs: IO[Iterator[Bug]]) -> None:
+    data = [{bug.__class__.__name__: bug.dict()} for bug in bugs]
+
+    time_str = datetime.now().isoformat(' ', 'seconds')
+    data_dir = save_data_path('buglog')
+    path = Path(data_dir) / f"{time_str}.dump"
+
+    print(path)
+
+    with open(path, 'w') as fout:
+        json.dump(data, fout)
 
 
-bug_classes = fuzzy_pick_bug()
-bugs = bug_classes.bind(input_bugs).map(list)
-print(bugs)
-# input_bugs(bug_classes=bug_classes)
-
-
-# subprocess.call(["fzf"])
-
-# proc = subprocess.run(["fzf"], universal_newlines=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-# proc.stdin.write("hello\nhello world\nhella")
-
-# print(proc.stdout)
-
-# proc.stdin.close()
-
-
-# pipe = Popen(['fzf'])
-# grep_stdout = pipe.communicate(input=b'one\ntwo\nthree\nfour\nfive\nsix\n')[0]
-# print(grep_stdout.decode())
-
-# print(fzf_input)
-
-# for bug_cls in Bug.__subclasses__():
-#     description = bug_cls.schema()["description"]
-#     print(description)
-
-
-# xs = extract_bug_from_text(Mood,
-# """
-# sd
-# sda
-# # Description of a thing you learned lately
-# lol
-# kekcheburek
-# # Commentary
-# kek
-# # Mood
-# 3
-# """
-# )
-
-# print(xs)
-# exit(11)
-
-# print(db_path())
-
-# input_bugs(bug_classes=Bug.__subclasses__())
-# for x in xs:
-#     print(x)
-# print(list(xs))
-
-
-# for propetry in schema["propetrties"]:
-    # print(pro`petrty)
-# print()
-
-
-
-# external_data = {
-#     'id': '123',
-#     'signup_ts': '2019-06-01 12:22',
-#     'friends': [1, 2, '3']
-# }
-# user = User(**external_data)
-# print(user.id)
-# print(repr(user.signup_ts))
-# print(user.friends)
-# print(user.dict())
+bug_classes: IO[List[Type[Bug]]] = fuzzy_pick_bug()
+lazy_bugs: IO[Iterator[Bug]] = bug_classes.bind(input_bugs)
+bugs: IO[List[Bug]] = lazy_bugs.map(list)
+bugs.bind(dump_bugs)
