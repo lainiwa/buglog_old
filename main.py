@@ -11,9 +11,9 @@ import numpy as np
 import typer
 import pandas as pd
 from pydantic import Field, BaseModel
-from returns.io import IO, impure
+
+# from returns.io import IO, impure
 from xdg.BaseDirectory import save_data_path
-from returns.converters import squash_io
 
 
 class Bug(BaseModel):
@@ -93,14 +93,12 @@ def text_to_bugs(bug_classes: List[Type[Bug]], text: str) -> Iterator[Bug]:
         yield extract_bug_from_text(bug_cls, text)
 
 
-@impure
 def db_path() -> Path:
     time_str = datetime.now().isoformat(" ", "seconds")
     data_dir = save_data_path("buglog")
     return Path(data_dir) / f"{time_str}.json"
 
 
-@impure
 def input_bugs(bug_classes: List[Type[Bug]]) -> Iterator[Bug]:
     try:
         # Create temporary file and write prompts to it
@@ -120,7 +118,6 @@ def input_bugs(bug_classes: List[Type[Bug]]) -> Iterator[Bug]:
         os.remove(tf.name)
 
 
-@impure
 def fuzzy_pick_bug() -> List[Type[Bug]]:
     """Use fzf to pick Bugs.
 
@@ -144,19 +141,12 @@ def fuzzy_pick_bug() -> List[Type[Bug]]:
     ]
 
 
-@impure
 def dump_bugs(path: Union[Path, str], bugs: Iterator[Bug]) -> None:
     """Dump Bugs into a JSON file."""
     data = {bug.__class__.__name__: bug.dict() for bug in bugs}
 
     with open(path, "w") as fout:
         json.dump(data, fout)
-
-
-def apply_multiple(fun, *args):
-    """Call function from pure arguments with IO arguments."""
-    new_fun = lambda tpl: fun(*tpl)
-    return squash_io(*args).bind(new_fun)
 
 
 def load_data_series() -> Iterator[Tuple[datetime, Bug]]:
@@ -210,13 +200,8 @@ app = typer.Typer()
 def new():
     path = db_path()
 
-    bug_classes: IO[List[Type[Bug]]] = fuzzy_pick_bug()
-    lazy_bugs: IO[Iterator[Bug]] = bug_classes.bind(input_bugs)
-    bugs: IO[List[Bug]] = lazy_bugs.map(list)
-
-    # bugs = IO([Soda(liters=2, name="coke"), Mood(mood=3)])
-
-    apply_multiple(dump_bugs, path, bugs)
+    bugs = input_bugs(fuzzy_pick_bug())
+    dump_bugs(path, bugs)
 
 
 @app.command()
