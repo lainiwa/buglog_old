@@ -1,2 +1,4 @@
 .isort.cfg
 .mypy_cache
+*.pyc
+
