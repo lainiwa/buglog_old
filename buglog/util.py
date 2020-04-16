@@ -1,77 +1,68 @@
 import os
+import sys
 import json
 import tempfile
 import subprocess
+import importlib.util
 from typing import Any, Dict, List, Type, Tuple, Union, Iterator
 from pathlib import Path
 from datetime import datetime
 from subprocess import PIPE, Popen
 
 import numpy as np
-import typer
 import pandas as pd
-from pydantic import Field, BaseModel
-
-# from returns.io import IO, impure
 from xdg.BaseDirectory import save_data_path
 
 
-class Bug(BaseModel):
-    pass
+def import_config():
+    """Import module as object.
+
+    src: https://docs.python.org/3/library/importlib.html#importing-a-source-file-directly
+
+    """
+
+    file_path = "buglog/config.py"
+    module_name = "config"
+
+    spec = importlib.util.spec_from_file_location(module_name, file_path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+
+    return module
 
 
-class Soda(Bug):
-    """Drank soda"""
-
-    liters: float = Field(
-        ..., title="How much soda you drank (in liters)", gt=0
-    )
-    name: str = Field(..., title="What was it")
-
-
-class Mood(Bug):
-    """Current mood & feel"""
-
-    mood: int = Field(
-        ..., title="How do you feel right now? (1=bad ... 5=great)", ge=1, le=5
-    )
-
-
-class Weight(Bug):
-    """Weight today"""
-
-    kg: float = Field(..., title="Your weight in kg", ge=0)
-
-
-class Learned(Bug):
-    """Learned stuff"""
-
-    summary: str = Field(
-        ..., title="Description of a thing you learned lately"
-    )
+# Import Bug class and, thus, all it's descendants
+module = import_config()
+Bug = module.Bug
 
 
 def bug_properties(bug_cls: Type[Bug]) -> Dict[str, Any]:
+    """Extract properties from type of bug."""
     return bug_cls.schema()["properties"]
 
 
 def bug_description(bug_cls: Type[Bug]) -> str:
+    """Extract description string from type of bug."""
     return bug_cls.schema()["description"]
 
 
 def str_to_bug(bug_name: str) -> Type[Bug]:
+    """Convert string containing bug class name to a class itself."""
     return {bug_cls.__name__: bug_cls for bug_cls in Bug.__subclasses__()}[
         bug_name
     ]
 
 
 def bug_to_text(bug_cls: Type[Bug]) -> str:
+    """Get prompt text for a bug class."""
     schemas = bug_properties(bug_cls).values()
     titles = (schema["title"] for schema in schemas)
     return "".join(f"# {title}\n\n" for title in titles)
 
 
 def extract_bug_from_text(bug_cls: Type[Bug], text: str) -> Bug:
+    """Extract bug from filled in text."""
     fields = {}
 
     for field, schema in bug_properties(bug_cls).items():
@@ -89,17 +80,20 @@ def extract_bug_from_text(bug_cls: Type[Bug], text: str) -> Bug:
 
 
 def text_to_bugs(bug_classes: List[Type[Bug]], text: str) -> Iterator[Bug]:
+    """Extract all bugs from filled in text."""
     for bug_cls in bug_classes:
         yield extract_bug_from_text(bug_cls, text)
 
 
 def db_path() -> Path:
+    """Get path to current database."""
     time_str = datetime.now().isoformat(" ", "seconds")
     data_dir = save_data_path("buglog")
     return Path(data_dir) / f"{time_str}.json"
 
 
 def input_bugs(bug_classes: List[Type[Bug]]) -> Iterator[Bug]:
+    """Interactively input bugs."""
     try:
         # Create temporary file and write prompts to it
         with tempfile.NamedTemporaryFile(delete=False) as tf:
@@ -109,8 +103,8 @@ def input_bugs(bug_classes: List[Type[Bug]]) -> Iterator[Bug]:
         # Open the file with vim
         subprocess.call([os.environ.get("EDITOR", "vi"), tf.name])
         # Parse the edited file and extract the Bugs
-        with open(tf.name, "r") as tf1:
-            text = tf1.read()
+        with open(tf.name, "r") as tf_:
+            text = tf_.read()
             bugs = text_to_bugs(bug_classes, text)
             return bugs
 
@@ -119,12 +113,7 @@ def input_bugs(bug_classes: List[Type[Bug]]) -> Iterator[Bug]:
 
 
 def fuzzy_pick_bug() -> List[Type[Bug]]:
-    """Use fzf to pick Bugs.
-
-    Returns:
-        User-picked Bug types.
-
-    """
+    """Use fzf to pick Bug types."""
     fzf_input = "\n".join(
         f"{cls.__name__} {bug_description(cls)}"
         for cls in Bug.__subclasses__()
@@ -150,6 +139,7 @@ def dump_bugs(path: Union[Path, str], bugs: Iterator[Bug]) -> None:
 
 
 def load_data_series() -> Iterator[Tuple[datetime, Bug]]:
+    """Yield timestamps along with bugs stored in the database."""
     data_dir = save_data_path("buglog")
     files = sorted(Path(data_dir).glob("*.json"))
     for file in files:
@@ -161,6 +151,8 @@ def load_data_series() -> Iterator[Tuple[datetime, Bug]]:
 
 
 def load_dataframe():
+    """Convert database to pandas dataframe."""
+
     def _indexes():
         yield ("timestamp",)
         for bug_cls in Bug.__subclasses__():
@@ -193,22 +185,4 @@ def load_dataframe():
     # df.index = df.index.astype('datetime64')
 
 
-app = typer.Typer()
 
-
-@app.command()
-def new():
-    path = db_path()
-
-    bugs = input_bugs(fuzzy_pick_bug())
-    dump_bugs(path, bugs)
-
-
-@app.command()
-def pr():
-    df = load_dataframe()
-    print(df)
-
-
-if __name__ == "__main__":
-    app()
