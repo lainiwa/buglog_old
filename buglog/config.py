@@ -11,7 +11,7 @@ class Soda(Bug):
     liters: float = Field(
         ..., title="How much soda you drank (in liters)", gt=0
     )
-    name: str = Field(..., title="What was it")
+    name: str = Field('diet coke', title="What was it")
 
 
 class Mood(Bug):
@@ -32,5 +32,5 @@ class Learned(Bug):
     """Learned stuff"""
 
     summary: str = Field(
-        ..., title="Description of a thing you learned lately"
+        'nothing', title="Description of a thing you learned lately"
     )

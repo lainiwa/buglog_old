@@ -58,7 +58,8 @@ def bug_to_text(bug_cls: Type[Bug]) -> str:
     """Get prompt text for a bug class."""
     schemas = bug_properties(bug_cls).values()
     titles = (schema["title"] for schema in schemas)
-    return "".join(f"# {title}\n\n" for title in titles)
+    defaults = (schema.get('default', '') for schema in schemas)
+    return "".join(f"# {title}\n{default}\n" for title, default in zip(titles, defaults))
 
 
 def extract_bug_from_text(bug_cls: Type[Bug], text: str) -> Bug:
