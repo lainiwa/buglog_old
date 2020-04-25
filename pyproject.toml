@@ -23,6 +23,9 @@ pylint = "^2.4.4"
 vulture = "^1.4"
 pprintpp = "^0.4.0"
 
+[tool.poetry.extras]
+fzf = ["iterfzf"]  # used only to fetch fzf binary
+
 [tool.poetry.scripts]
 bug = 'buglog.console:app'
 
