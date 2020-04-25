@@ -34,7 +34,7 @@ def import_config():
 
 # Import Bug class and, thus, all it's descendants
 module = import_config()
-Bug = module.Bug
+Bug = module.Bug  # from <...>config import Bug
 
 
 def bug_properties(bug_cls: Type[Bug]) -> Dict[str, Any]:
